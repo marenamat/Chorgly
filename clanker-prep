@@ -537,11 +537,18 @@ def main():
             fetched_pipeline_ids = [r["id"] for r in runs]
             for r in runs:
                 if r["id"] not in seen_ids:
-                    # Only trigger on failures we haven't seen before
-                    if r["conclusion"] in ("failure", "action_required") and r["branch"] == "main":
-                        reasons.append(f"pipeline failure on main: {r['name']}")
-                # Mark every fetched run ID as seen regardless of outcome
-                seen_ids.add(r["id"])
+                    # Only trigger on failures we haven't seen before.
+                    # Check any branch, not just main — a CI failure on a
+                    # feature branch is equally actionable.
+                    if r["conclusion"] in ("failure", "action_required"):
+                        reasons.append(f"pipeline failure on {r['branch']}: {r['name']}")
+                    # Only mark as seen once the run has reached a terminal state.
+                    # An in-progress run (conclusion == None) must be re-evaluated
+                    # on the next cycle in case it finishes with a failure.
+                    # Bug without this: prep runs while CI is queued/running,
+                    # marks the ID as seen, CI then fails, failure is never caught.
+                    if r["status"] == "completed":
+                        seen_ids.add(r["id"])
 
     with open(context_dir / "pipeline_results.yaml", "w") as f:
         yaml.dump(pipeline_ctx, f, default_flow_style=False, allow_unicode=True)
