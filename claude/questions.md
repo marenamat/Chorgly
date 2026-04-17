@@ -8,3 +8,5 @@ The `Deploy GitHub Pages` workflow on `main` fails at the **Setup Pages** step
 
 **Action needed:** Go to the repository Settings → Pages, set the source to
 `GitHub Actions`, and re-run the workflow. The `docs/` directory is ready to deploy.
+
+… *Done. Set to actions*
