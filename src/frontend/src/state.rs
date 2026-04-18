@@ -95,6 +95,14 @@ impl AppState {
       .map_err(|e| JsValue::from_str(&e.to_string()))
   }
 
+  /// True if the chore with the given UUID string is blocked by unmet dependencies.
+  /// Uses the actual chore/event state rather than just checking dep-list length.
+  pub fn is_chore_blocked(&self, chore_id: &str) -> bool {
+    let Ok(id) = chore_id.parse::<uuid::Uuid>() else { return false };
+    let Some(chore) = self.chores.get(&id) else { return false };
+    chore.is_blocked(&self.chores, &self.events)
+  }
+
   /// Return untriggered external events as a JS value.
   pub fn pending_events_json(&self) -> Result<JsValue, JsValue> {
     let mut events: Vec<&ExternalEvent> = self.events.values()

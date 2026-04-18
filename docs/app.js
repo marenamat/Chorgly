@@ -154,9 +154,8 @@ function renderChores() {
     const li = document.createElement('li');
     li.className = 'chore-item';
 
-    // A chore is blocked if it has unmet chore deps or event deps.
-    const blocked = (c.depends_on && c.depends_on.length > 0)
-      || (c.depends_on_events && c.depends_on_events.length > 0);
+    // Ask WASM state whether this chore's deps are actually unmet (smarter than length check).
+    const blocked = state.is_chore_blocked(c.id);
     if (blocked) li.classList.add('blocked');
 
     const dueMs = c.next_due ? new Date(c.next_due).getTime() : null;

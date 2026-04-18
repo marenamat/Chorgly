@@ -11,6 +11,7 @@ workspace_layout:
   - docs/app.html: app shell (auth screen + chore list + add-chore dialog)
   - docs/app.css: app styles
   - docs/app.js: JS glue (WebSocket, WASM init, DOM render)
+  - .github/workflows/build.yml: CI — cargo check + cargo test + wasm-pack build
 
 key_design_decisions:
   - CBOR over WebSocket for all messages (ClientMsg / ServerMsg enums)
@@ -19,12 +20,12 @@ key_design_decisions:
   - Rate limit: 30 msg/s per client session
   - "Common chore" = assigned_to null; "personal chore" = assigned_to [user_id]
   - Dependency check at completion time (blocked_by helper on Chore)
+  - Android = PWA (near-zero extra work, confirmed in design doc)
 
-open_questions: claude/questions.md  # 6 questions need guardian input
+open_questions: none  # all resolved
 
 next_steps:
-  - Guardian answers questions (especially Q1 Android, Q2 git repo)
-  - Wire up wasm-pack build in CI (GitHub Actions)
-  - Integration tests for backend (tokio-test)
+  - Guardian reviews and merges issue-2
+  - Chain build→deploy in CI (wasm-pack output → docs/pkg → pages deploy)
   - Proper cron schedule parsing for RecurringScheduled kind
-  - Token auto-read from URL query string (Q6)
+  - Smarter server-side RecurringScheduled next_due (replace placeholder Some(now))

@@ -117,6 +117,8 @@ impl Chore {
   }
 
   /// True if this chore is blocked by unmet chore or event dependencies.
+  /// Note: for a recurring chore, completed_at is what matters —
+  /// a dep is satisfied if it has any completion, regardless of recurrence.
   pub fn is_blocked(
     &self,
     all_chores: &HashMap<ChoreId, Chore>,
@@ -134,5 +136,171 @@ impl Chore {
       .any(|eid| !all_events.get(eid).map_or(false, |e| e.triggered));
 
     chore_blocked || event_blocked
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::collections::HashMap;
+  use chrono::Utc;
+  use uuid::Uuid;
+  use crate::event::ExternalEvent;
+
+  fn chore_with_completions(id: Uuid, n: usize) -> Chore {
+    let creator = Uuid::new_v4();
+    Chore {
+      id,
+      title: "test chore".into(),
+      kind: ChoreKind::OneTime,
+      visible_to: None,
+      assignee: None,
+      can_complete: None,
+      depends_on: vec![],
+      depends_on_events: vec![],
+      created_at: Utc::now(),
+      created_by: creator,
+      completions: (0..n).map(|_| Completion {
+        completed_at: Utc::now(),
+        completed_by: creator,
+      }).collect(),
+    }
+  }
+
+  fn untriggered_event(id: EventId) -> ExternalEvent {
+    let creator = Uuid::new_v4();
+    ExternalEvent {
+      id,
+      name: "test event".into(),
+      description: String::new(),
+      triggered: false,
+      triggered_at: None,
+      triggered_by: None,
+      created_at: Utc::now(),
+      created_by: creator,
+    }
+  }
+
+  fn triggered_event(id: EventId) -> ExternalEvent {
+    let creator = Uuid::new_v4();
+    ExternalEvent {
+      id,
+      name: "test event".into(),
+      description: String::new(),
+      triggered: true,
+      triggered_at: Some(Utc::now()),
+      triggered_by: Some(creator),
+      created_at: Utc::now(),
+      created_by: creator,
+    }
+  }
+
+  // next_due tests
+
+  #[test]
+  fn one_time_pending_without_completion() {
+    let c = chore_with_completions(Uuid::new_v4(), 0);
+    assert!(c.next_due(Utc::now()).is_some());
+  }
+
+  #[test]
+  fn one_time_done_after_completion() {
+    let c = chore_with_completions(Uuid::new_v4(), 1);
+    assert!(c.next_due(Utc::now()).is_none());
+  }
+
+  #[test]
+  fn recurring_after_completion_always_has_due_date() {
+    let mut c = chore_with_completions(Uuid::new_v4(), 0);
+    c.kind = ChoreKind::RecurringAfterCompletion { delay_secs: 3600 };
+    assert!(c.next_due(Utc::now()).is_some()); // never done → due now
+    c.completions.push(Completion { completed_at: Utc::now(), completed_by: Uuid::new_v4() });
+    assert!(c.next_due(Utc::now()).is_some()); // done → due in 1h, but date still present
+  }
+
+  // is_blocked tests
+
+  #[test]
+  fn not_blocked_with_no_deps() {
+    let c = chore_with_completions(Uuid::new_v4(), 0);
+    assert!(!c.is_blocked(&HashMap::new(), &HashMap::new()));
+  }
+
+  #[test]
+  fn blocked_by_incomplete_chore_dep() {
+    let dep_id = Uuid::new_v4();
+    let dep = chore_with_completions(dep_id, 0); // not completed
+    let mut c = chore_with_completions(Uuid::new_v4(), 0);
+    c.depends_on = vec![dep_id];
+    let mut chores = HashMap::new();
+    chores.insert(dep_id, dep);
+    assert!(c.is_blocked(&chores, &HashMap::new()));
+  }
+
+  #[test]
+  fn unblocked_when_chore_dep_completed() {
+    let dep_id = Uuid::new_v4();
+    let dep = chore_with_completions(dep_id, 1); // completed
+    let mut c = chore_with_completions(Uuid::new_v4(), 0);
+    c.depends_on = vec![dep_id];
+    let mut chores = HashMap::new();
+    chores.insert(dep_id, dep);
+    assert!(!c.is_blocked(&chores, &HashMap::new()));
+  }
+
+  #[test]
+  fn blocked_by_untriggered_event_dep() {
+    let eid = Uuid::new_v4();
+    let event = untriggered_event(eid);
+    let mut c = chore_with_completions(Uuid::new_v4(), 0);
+    c.depends_on_events = vec![eid];
+    let mut events = HashMap::new();
+    events.insert(eid, event);
+    assert!(c.is_blocked(&HashMap::new(), &events));
+  }
+
+  #[test]
+  fn unblocked_when_event_dep_triggered() {
+    let eid = Uuid::new_v4();
+    let event = triggered_event(eid);
+    let mut c = chore_with_completions(Uuid::new_v4(), 0);
+    c.depends_on_events = vec![eid];
+    let mut events = HashMap::new();
+    events.insert(eid, event);
+    assert!(!c.is_blocked(&HashMap::new(), &events));
+  }
+
+  // visibility / permission tests
+
+  #[test]
+  fn visible_to_none_means_everyone_can_see() {
+    let c = chore_with_completions(Uuid::new_v4(), 0);
+    assert!(c.visible_to_user(Uuid::new_v4()));
+  }
+
+  #[test]
+  fn visible_to_list_restricts_visibility() {
+    let uid = Uuid::new_v4();
+    let other = Uuid::new_v4();
+    let mut c = chore_with_completions(Uuid::new_v4(), 0);
+    c.visible_to = Some(vec![uid]);
+    assert!(c.visible_to_user(uid));
+    assert!(!c.visible_to_user(other));
+  }
+
+  #[test]
+  fn can_complete_none_means_anyone() {
+    let c = chore_with_completions(Uuid::new_v4(), 0);
+    assert!(c.completable_by(Uuid::new_v4()));
+  }
+
+  #[test]
+  fn can_complete_list_restricts_completion() {
+    let uid = Uuid::new_v4();
+    let other = Uuid::new_v4();
+    let mut c = chore_with_completions(Uuid::new_v4(), 0);
+    c.can_complete = Some(vec![uid]);
+    assert!(c.completable_by(uid));
+    assert!(!c.completable_by(other));
   }
 }
