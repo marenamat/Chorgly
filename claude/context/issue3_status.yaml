@@ -1,0 +1,20 @@
+issue: 3
+title: Deployment
+branch: issue-3
+based_on: issue-2
+recorded_at: '2026-04-18T18:00:00+00:00'
+status: pending_review
+
+work_done:
+  - Switched backend transport from raw tokio-tungstenite to axum 0.7
+  - Backend now serves static webapp (ServeDir) + WebSocket at /ws on one port
+  - Port/data-dir/static-dir all configurable via env vars (CHORGLY_PORT, CHORGLY_DATA, CHORGLY_STATIC_DIR)
+  - Updated app.js WS_URL from hardcoded :8765 to same-host /ws path
+  - Multi-stage Dockerfile (wasm-builder → native-builder → debian:bookworm-slim runtime)
+  - /data (VOLUME) for CBOR database, /config (VOLUME) reserved for future config
+  - .github/workflows/docker.yml builds + pushes to DockerHub on main push and version tags
+  - Supports linux/amd64 and linux/arm64 via Buildx
+
+notes:
+  - DockerHub push requires DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets in the repo
+  - issue-3 branches from issue-2 (prototype); rebase onto main after issue-2 merges

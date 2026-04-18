@@ -3,9 +3,10 @@
 
 import init, { AppState, decode_server_msg, encode_client_msg } from './pkg/chorgly_frontend.js';
 
+// WebSocket is served at /ws on the same host:port as the HTTP app.
 const WS_URL = window.location.protocol === 'https:'
-  ? `wss://${window.location.hostname}:8765/`
-  : `ws://${window.location.hostname}:8765/`;
+  ? `wss://${window.location.host}/ws`
+  : `ws://${window.location.host}/ws`;
 
 const TOKEN_KEY = 'chorgly_token';
 

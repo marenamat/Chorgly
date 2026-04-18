@@ -4,10 +4,8 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
-use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite::Message;
-use tokio::net::TcpStream;
 
 use chorgly_core::{ClientMsg, ServerMsg, User};
 use crate::state::SharedState;
@@ -15,18 +13,14 @@ use crate::state::SharedState;
 // Per-client rate limit: max 30 messages per second.
 const MAX_MSG_PER_SEC: u32 = 30;
 
-pub async fn run(
-  ws: WebSocketStream<TcpStream>,
-  peer: SocketAddr,
-  state: Arc<SharedState>,
-) {
+pub async fn run(ws: WebSocket, peer: SocketAddr, state: Arc<SharedState>) {
   if let Err(e) = handle(ws, peer, state).await {
     eprintln!("session {peer} error: {e}");
   }
 }
 
 async fn handle(
-  ws: WebSocketStream<TcpStream>,
+  ws: WebSocket,
   peer: SocketAddr,
   state: Arc<SharedState>,
 ) -> anyhow::Result<()> {

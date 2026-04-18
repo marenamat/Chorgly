@@ -1,4 +1,11 @@
-// chorgly-backend: WebSocket server
+// chorgly-backend: HTTP + WebSocket server
+//
+// Serves the static webapp from CHORGLY_STATIC_DIR (default: ./docs) and
+// the WebSocket endpoint at /ws.
+//
+// Port:       CHORGLY_PORT      (default: 8080)
+// Data dir:   CHORGLY_DATA      or first CLI arg (default: ./data)
+// Static dir: CHORGLY_STATIC_DIR (default: ./docs)
 
 mod state;
 mod session;
@@ -6,27 +13,40 @@ mod persist;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::net::TcpListener;
-use tokio_tungstenite::accept_async;
+use axum::{
+  Router,
+  extract::{State, WebSocketUpgrade},
+  extract::ws::WebSocket,
+  response::IntoResponse,
+  routing::get,
+};
+use tower_http::services::ServeDir;
 use anyhow::Result;
 
 use state::SharedState;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  // Data directory is configurable via first CLI argument (Q2). Default: ./data
-  let data_dir = std::env::args().nth(1).unwrap_or_else(|| "data".to_string());
+  // Data directory: env var, then first CLI arg, then default.
+  let data_dir = std::env::var("CHORGLY_DATA")
+    .unwrap_or_else(|_| std::env::args().nth(1).unwrap_or_else(|| "data".to_string()));
+
+  // Static files directory (the built webapp).
+  let static_dir = std::env::var("CHORGLY_STATIC_DIR")
+    .unwrap_or_else(|_| "docs".to_string());
+
+  let port: u16 = std::env::var("CHORGLY_PORT")
+    .ok()
+    .and_then(|s| s.parse().ok())
+    .unwrap_or(8080);
+
   eprintln!("chorgly-backend data dir: {data_dir}");
+  eprintln!("chorgly-backend static dir: {static_dir}");
+  eprintln!("chorgly-backend port: {port}");
 
-  // Bind on all interfaces, IPv6 first (dual-stack on Linux serves v4 too).
-  let addr: SocketAddr = "[::]:8765".parse()?;
-  let listener = TcpListener::bind(addr).await?;
-  eprintln!("chorgly-backend listening on {addr}");
-
-  // Load DB from disk (or start fresh) and wrap in shared state.
   let state = Arc::new(SharedState::load_or_default(data_dir).await?);
 
-  // Spawn the hourly persistence task.
+  // Spawn hourly persistence.
   {
     let s = Arc::clone(&state);
     tokio::spawn(async move {
@@ -34,15 +54,27 @@ async fn main() -> Result<()> {
     });
   }
 
-  // Accept WebSocket connections.
-  loop {
-    let (stream, peer) = listener.accept().await?;
-    let s = Arc::clone(&state);
-    tokio::spawn(async move {
-      match accept_async(stream).await {
-        Ok(ws) => session::run(ws, peer, s).await,
-        Err(e) => eprintln!("WS handshake failed from {peer}: {e}"),
-      }
-    });
-  }
+  let app = Router::new()
+    // WebSocket endpoint.
+    .route("/ws", get(ws_handler))
+    // Static files fallback — serves the webapp.
+    .fallback_service(ServeDir::new(static_dir))
+    .with_state(state);
+
+  // Bind on all interfaces, IPv6 (dual-stack on Linux covers IPv4 too).
+  let addr: SocketAddr = format!("[::]:{port}").parse()?;
+  eprintln!("chorgly-backend listening on {addr}");
+
+  let listener = tokio::net::TcpListener::bind(addr).await?;
+  axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+  Ok(())
+}
+
+/// HTTP upgrade handler — hands the socket to session::run.
+async fn ws_handler(
+  ws: WebSocketUpgrade,
+  State(state): State<Arc<SharedState>>,
+  axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<SocketAddr>,
+) -> impl IntoResponse {
+  ws.on_upgrade(move |socket: WebSocket| session::run(socket, peer, state))
 }
