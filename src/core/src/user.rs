@@ -12,10 +12,14 @@ pub struct User {
   pub token: String,
   pub token_issued_at: DateTime<Utc>,
   pub token_expires_at: DateTime<Utc>,
+  /// One-time init token issued by the admin script for first login.
+  /// Set to None once consumed (after a successful auth).
+  #[serde(default)]
+  pub init_token: Option<String>,
 }
 
 impl User {
-  /// Checks whether the token is still valid at the given time.
+  /// Checks whether the session token is still valid at the given time.
   pub fn token_valid_at(&self, now: DateTime<Utc>) -> bool {
     now < self.token_expires_at
   }

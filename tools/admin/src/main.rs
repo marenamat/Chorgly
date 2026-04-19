@@ -92,17 +92,20 @@ fn generate_token() -> String {
 }
 
 fn add_user(db: &mut Database, name: String) -> (User, String) {
-  let token = generate_token();
+  let session_token = generate_token();
+  let init_token = generate_token();
   let now = Utc::now();
   let user = User {
     id: Uuid::new_v4(),
     name,
-    token: token.clone(),
+    token: session_token,
     token_issued_at: now,
     token_expires_at: now + Duration::days(7),
+    // init_token is for the first-login URL link; consumed on first successful auth
+    init_token: Some(init_token.clone()),
   };
   db.users.insert(user.id, user.clone());
-  (user, token)
+  (user, init_token)
 }
 
 fn reset_token(db: &mut Database, who: &str) -> Result<(User, String)> {

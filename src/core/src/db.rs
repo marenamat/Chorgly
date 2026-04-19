@@ -27,8 +27,20 @@ impl Database {
     ciborium::de::from_reader(bytes)
   }
 
-  /// Look up a user by their current token.
+  /// Look up a user by their current session token.
   pub fn user_by_token(&self, token: &str) -> Option<&User> {
     self.users.values().find(|u| u.token == token)
+  }
+
+  /// Look up a user by their init token (if unused).
+  pub fn user_by_init_token(&self, token: &str) -> Option<&User> {
+    self.users.values().find(|u| u.init_token.as_deref() == Some(token))
+  }
+
+  /// Consume the init token of a user (called after successful first login).
+  pub fn consume_init_token(&mut self, user_id: UserId) {
+    if let Some(u) = self.users.get_mut(&user_id) {
+      u.init_token = None;
+    }
   }
 }

@@ -41,12 +41,24 @@ impl SharedState {
 
   // ------ auth ------
 
+  /// Authenticate a user by token (session or init).
+  /// If the token matches an unused init_token, it is consumed (write lock).
   pub async fn auth_user(&self, token: &str) -> Option<User> {
-    let db = self.db.read().await;
     let now = Utc::now();
-    db.user_by_token(token)
-      .filter(|u| u.token_valid_at(now))
-      .cloned()
+
+    // Fast path: valid session token (read lock only).
+    {
+      let db = self.db.read().await;
+      if let Some(user) = db.user_by_token(token).filter(|u| u.token_valid_at(now)) {
+        return Some(user.clone());
+      }
+    }
+
+    // Slow path: init token — consume it on success (write lock).
+    let mut db = self.db.write().await;
+    let user = db.user_by_init_token(token).cloned()?;
+    db.consume_init_token(user.id);
+    Some(user)
   }
 
   // ------ chores ------
