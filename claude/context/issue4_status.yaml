@@ -3,7 +3,7 @@ title: automatic tests
 branch: issue-4
 based_on: main
 recorded_at: '2026-04-19T19:00:00+00:00'
-status: in_progress
+status: pending_review
 
 work_done:
   - Added init_token: Option<String> to User struct (with #[serde(default)] for
@@ -27,6 +27,12 @@ work_done:
   - tests/testdata/ added to .gitignore (generated data)
 
 pending:
-  - CI run needed to confirm Docker build succeeds and tests pass
+  - Guardian must push issue-4 branch to trigger CI integration tests
   - Dockerfile still uses curl|sh for wasm-pack (may need to align with
     build.yml's cargo install --locked approach if Docker CI fails for wasm)
+
+rebase_history:
+  - Rebased 2026-04-19: dropped 7a95a64 (first-access impl already merged into
+    main as 74f5b25); replayed d01f21e (integration tests) onto origin/main.
+    Only conflict was frontend/Cargo.toml (uuid js feature comment); resolved
+    by keeping main's comment.
