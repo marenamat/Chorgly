@@ -38,8 +38,9 @@
     </p>
     <p>
       Default flow: you open the app, see what is pending, and tap a button to
-      mark something done or add a new chore. No accounts, no passwords — login
-      is by a daily-renewed token link sent by the admin.
+      mark something done or add a new chore. No accounts, no passwords — the
+      admin sends a one-time link; your browser generates a key pair and
+      registers it automatically.
     </p>
   </section>
 
@@ -81,8 +82,10 @@
     </p>
     <p>
       There are no passwords. The admin creates a user with a terminal script and
-      sends an init link. The token renews daily and expires after a week of
-      inactivity. Lost tokens are reset by the admin.
+      sends a one-time init link. The browser generates a P-256 EC key pair,
+      registers the public key via a challenge-response handshake, and stores
+      the private key in localStorage. Keys are valid for 7 days; the client
+      re-keys automatically. Lost keys are reset by the admin.
     </p>
   </section>
 
@@ -104,8 +107,10 @@
 
     <h3>Auth</h3>
     <p>
-      Token-based. No passwords. Tokens renewed daily, expire in a week.
-      Created and reset by admin terminal script.
+      P-256 ECDSA key pairs. No passwords. The browser generates a key pair on
+      first visit (via a one-time admin init link) and signs every message with
+      the private key stored in localStorage. Keys expire in 7 days with
+      automatic re-keying. Created and reset by admin terminal script.
     </p>
   </section>
 
