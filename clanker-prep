@@ -547,7 +547,7 @@ def main():
                     # Only trigger on failures we haven't seen before.
                     # Check any branch, not just main — a CI failure on a
                     # feature branch is equally actionable.
-                    if r["conclusion"] in ("failure", "action_required"):
+                    if r["conclusion"] in ("failure", "action_required", "timed_out"):
                         reasons.append(f"pipeline failure on {r['branch']}: {r['name']}")
                     # Only mark as seen once the run has reached a terminal state.
                     # An in-progress run (conclusion == None) must be re-evaluated
