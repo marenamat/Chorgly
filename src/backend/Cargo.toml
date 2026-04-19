@@ -20,3 +20,6 @@ futures-util = "0.3"
 rand = "0.8"
 git2 = "0.19"
 anyhow = "1"
+p256 = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }

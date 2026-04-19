@@ -27,20 +27,20 @@ impl Database {
     ciborium::de::from_reader(bytes)
   }
 
-  /// Look up a user by their current session token.
-  pub fn user_by_token(&self, token: &str) -> Option<&User> {
-    self.users.values().find(|u| u.token == token)
-  }
-
   /// Look up a user by their init token (if unused).
   pub fn user_by_init_token(&self, token: &str) -> Option<&User> {
     self.users.values().find(|u| u.init_token.as_deref() == Some(token))
   }
 
-  /// Consume the init token of a user (called after successful first login).
+  /// Consume the init_token of a user (called after successful key registration).
   pub fn consume_init_token(&mut self, user_id: UserId) {
     if let Some(u) = self.users.get_mut(&user_id) {
       u.init_token = None;
     }
+  }
+
+  /// Look up a user who has a pubkey with the given key_id (not expired, any retiring status).
+  pub fn user_by_key_id(&self, key_id: &str) -> Option<&User> {
+    self.users.values().find(|u| u.pubkeys.iter().any(|k| k.key_id == key_id))
   }
 }

@@ -1,0 +1,44 @@
+issue: 5
+title: more robust auth
+branch: issue-5
+based_on: main
+recorded_at: '2026-04-19T22:00:00+00:00'
+status: pending_review
+
+work_done:
+  - Replaced token-based auth with P-256 ECDSA key-pair auth throughout
+  - User struct: removed token/token_issued_at/token_expires_at fields;
+    added pubkeys: Vec<PublicKey> (key_id, spki_bytes, added_at, expires_at, retiring)
+    and kept init_token: Option<String> for first-time registration links
+  - New protocol messages:
+      ClientMsg::RequestChallenge { init_token, pubkey_spki }
+      ClientMsg::ConfirmKey { signature }
+      ClientMsg::Signed { key_id, payload, signature, rekey_sig? }
+      SignedPayload enum (ListAll, AddChore, ..., ReKey { new_pubkey_spki })
+      ServerMsg::Challenge { token }
+  - Backend session state machine: Unauthenticated → PendingChallenge → Authenticated
+  - Challenge response: client signs (challenge_bytes || pubkey_spki_bytes)
+  - All post-auth messages wrapped in Signed envelope, verified on server with p256 crate
+  - Re-keying: old key signs ReKey payload, new key also signs same payload (rekey_sig);
+    server marks old key retiring; removes it on next new-key message
+  - admin tool: removed token generation; added reset-init-token and revoke-keys commands
+  - Frontend (app.js): Web Crypto API key gen, PKCS8 storage in localStorage,
+    challenge-response registration flow, signed message sending, auto re-key logic
+  - WASM exports: encode_request_challenge, encode_confirm_key, encode_signed_payload,
+    encode_signed_msg, encode_rekey_msg; removed old encode_client_msg
+  - Integration tests updated: gen_testdata.py generates real EC keys via cryptography lib;
+    test_auth.py tests 10 cases including challenge-response, bad-sig rejection, re-key token survival
+  - Added cryptography to pip deps in integration.yml
+  - Updated claude/design/chorgly.md to document new auth protocol
+
+crypto_details:
+  curve: P-256 (SECP256R1)
+  signature_format: IEEE P1363 (64 bytes r||s) — matches Web Crypto API output
+  key_id: hex(SHA-256(spki_bytes)) — used to identify which stored key to verify with
+  key_validity: 7 days
+  rekey_trigger: client-side, when elapsed >= validity/4 (42h for 7-day keys)
+
+pending:
+  - Guardian must push issue-5 branch to trigger CI integration tests
+  - Note: issue-4 (auth integration tests) tests the old token-based auth and will
+    need to be updated/dropped when this branch is merged

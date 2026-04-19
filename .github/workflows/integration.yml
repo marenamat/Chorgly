@@ -2,9 +2,6 @@
 #
 # Builds the Docker image, starts a container with mock test data, runs the
 # Python auth test suite against the live WebSocket endpoint, then tears down.
-#
-# Depends on the Docker build succeeding (docker.yml runs in parallel, so we
-# build the image inline here rather than relying on a pushed image).
 
 name: Integration Tests
 
@@ -39,7 +36,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python test dependencies
-        run: pip install cbor2 websockets pyyaml
+        run: pip install cbor2 websockets pyyaml cryptography
 
       - name: Generate test data
         run: python3 tests/gen_testdata.py

@@ -7,7 +7,7 @@ pub mod proto;
 pub mod event;
 
 pub use chore::{Chore, ChoreId, ChoreKind, Completion};
-pub use user::{User, UserId};
+pub use user::{PublicKey, User, UserId};
 pub use db::Database;
-pub use proto::{ClientMsg, ServerMsg};
+pub use proto::{ClientMsg, ServerMsg, SignedPayload};
 pub use event::{EventId, ExternalEvent};

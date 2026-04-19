@@ -4,15 +4,22 @@
 use std::path::PathBuf;
 use tokio::sync::{RwLock, broadcast};
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use uuid::Uuid;
 
+use p256::pkcs8::DecodePublicKey;
+use p256::ecdsa::{VerifyingKey, Signature, signature::Verifier};
+use sha2::{Sha256, Digest};
+
 use chorgly_core::{
-  Chore, ChoreId, ChoreKind, Completion, Database, ExternalEvent, ServerMsg, User, UserId,
+  Chore, ChoreId, ChoreKind, Completion, Database, ExternalEvent, PublicKey, ServerMsg, User, UserId,
 };
 use chorgly_core::event::EventId;
 
 pub type Tx = broadcast::Sender<ServerMsg>;
+
+/// How long a registered key is valid.
+const KEY_VALIDITY_DAYS: i64 = 7;
 
 pub struct SharedState {
   pub db: RwLock<Database>,
@@ -41,35 +48,100 @@ impl SharedState {
 
   // ------ auth ------
 
-  /// Check a token without side effects. Returns the user and whether it was
-  /// an init_token (which must be consumed after AuthOk is sent).
-  pub async fn try_auth(&self, token: &str) -> Option<(User, bool)> {
-    let now = Utc::now();
+  /// Verify an init_token and return the matching user (read-only, no side effects).
+  pub async fn check_init_token(&self, token: &str) -> Option<User> {
     let db = self.db.read().await;
-
-    // Valid session token.
-    if let Some(user) = db.user_by_token(token).filter(|u| u.token_valid_at(now)) {
-      return Some((user.clone(), false));
-    }
-
-    // Init token (not yet consumed — caller must call consume_init_token after AuthOk).
-    if let Some(user) = db.user_by_init_token(token) {
-      return Some((user.clone(), true));
-    }
-
-    None
+    db.user_by_init_token(token).cloned()
   }
 
-  /// Consume the init_token for a user. Call this only after AuthOk is delivered.
-  /// If the connection drops before delivery, the token remains valid for retry.
+  /// Consume the init_token for a user. Call only after AuthOk is delivered.
   pub async fn consume_init_token(&self, user_id: UserId) {
     let mut db = self.db.write().await;
     db.consume_init_token(user_id);
   }
 
+  /// Register the new pubkey for a user. Called after ConfirmKey verification.
+  /// Returns the updated User.
+  pub async fn register_pubkey(&self, user_id: UserId, spki_bytes: Vec<u8>) -> User {
+    let key_id = spki_key_id(&spki_bytes);
+    let now = Utc::now();
+    let key = PublicKey {
+      key_id,
+      spki_bytes,
+      added_at: now,
+      expires_at: now + Duration::days(KEY_VALIDITY_DAYS),
+      retiring: false,
+    };
+    let mut db = self.db.write().await;
+    let user = db.users.get_mut(&user_id).expect("user must exist");
+    user.pubkeys.push(key);
+    user.clone()
+  }
+
+  /// Look up a user by key_id (read-only). Returns (user, pubkey_spki) if found and not expired.
+  pub async fn user_by_key_id(&self, key_id: &str) -> Option<(User, Vec<u8>)> {
+    let now = Utc::now();
+    let db = self.db.read().await;
+    let user = db.user_by_key_id(key_id)?;
+    let key = user.pubkeys.iter().find(|k| k.key_id == key_id && k.valid_at(now))?;
+    Some((user.clone(), key.spki_bytes.clone()))
+  }
+
+  /// Accept a ReKey: add new_spki for user, mark old key as retiring.
+  /// Returns the updated User, or an error string.
+  pub async fn apply_rekey(
+    &self,
+    user_id: UserId,
+    old_key_id: &str,
+    new_spki_bytes: Vec<u8>,
+  ) -> Result<User, String> {
+    let new_key_id = spki_key_id(&new_spki_bytes);
+    let now = Utc::now();
+    let mut db = self.db.write().await;
+    let user = db.users.get_mut(&user_id).ok_or("user not found")?;
+
+    if user.pubkeys.iter().any(|k| k.key_id == new_key_id) {
+      return Err("new key already registered".into());
+    }
+
+    for k in &mut user.pubkeys {
+      if k.key_id == old_key_id {
+        k.retiring = true;
+      }
+    }
+
+    user.pubkeys.push(PublicKey {
+      key_id: new_key_id,
+      spki_bytes: new_spki_bytes,
+      added_at: now,
+      expires_at: now + Duration::days(KEY_VALIDITY_DAYS),
+      retiring: false,
+    });
+
+    Ok(user.clone())
+  }
+
+  /// Remove all retiring keys except active_key_id. Called when the new key sends its first message.
+  pub async fn retire_old_keys(&self, user_id: UserId, active_key_id: &str) {
+    let mut db = self.db.write().await;
+    if let Some(user) = db.users.get_mut(&user_id) {
+      user.pubkeys.retain(|k| !k.retiring || k.key_id == active_key_id);
+    }
+  }
+
+  // ------ crypto ------
+
+  /// Verify ECDSA-P256-SHA256 signature over data using the given SPKI public key.
+  /// sig_bytes must be in IEEE P1363 format (64 bytes: r || s).
+  pub fn verify_sig(spki_bytes: &[u8], data: &[u8], sig_bytes: &[u8]) -> bool {
+    let Ok(pk) = p256::PublicKey::from_public_key_der(spki_bytes) else { return false; };
+    let vk = VerifyingKey::from(pk);
+    let Ok(sig) = Signature::from_bytes(sig_bytes.into()) else { return false; };
+    vk.verify(data, &sig).is_ok()
+  }
+
   // ------ chores ------
 
-  /// List chores visible to the given user (Q4: visible_to filter).
   pub async fn list_chores(&self, user_id: UserId) -> Vec<Chore> {
     self.db.read().await.chores.values()
       .filter(|c| c.visible_to_user(user_id))
@@ -117,17 +189,14 @@ impl SharedState {
     let mut db = self.db.write().await;
     let chore = db.chores.get(&chore_id).ok_or("chore not found")?.clone();
 
-    // Check can_complete permission (Q4).
     if !chore.completable_by(by) {
       return Err("you are not allowed to complete this chore".into());
     }
 
-    // Check that all dependencies are satisfied (Q3: includes event deps).
     if chore.is_blocked(&db.chores, &db.events) {
       return Err("chore is blocked by unmet dependencies".into());
     }
 
-    // Record the completion. One completion resets the timer for all (Q5).
     let chore = db.chores.get_mut(&chore_id).unwrap();
     chore.completions.push(Completion {
       completed_at: Utc::now(),
@@ -146,8 +215,6 @@ impl SharedState {
   ) -> Result<(), String> {
     let mut db = self.db.write().await;
     let chore = db.chores.get(&chore_id).ok_or("chore not found")?;
-
-    // Only the creator may delete.
     if chore.created_by != by {
       return Err("only the creator may delete this chore".into());
     }
@@ -157,7 +224,7 @@ impl SharedState {
     Ok(())
   }
 
-  // ------ external events (Q3) ------
+  // ------ external events ------
 
   pub async fn list_events(&self) -> Vec<ExternalEvent> {
     self.db.read().await.events.values().cloned().collect()
@@ -218,4 +285,9 @@ impl SharedState {
     let _ = self.broadcast.send(ServerMsg::EventDeleted { event_id });
     Ok(())
   }
+}
+
+/// Compute the key_id (hex SHA-256 fingerprint) of a SPKI public key.
+pub fn spki_key_id(spki_bytes: &[u8]) -> String {
+  hex::encode(Sha256::digest(spki_bytes))
 }
