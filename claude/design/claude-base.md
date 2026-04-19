@@ -51,15 +51,16 @@ JSON line to a machine-readable sidecar file, e.g. `clanker-runs.jsonl`.
 
 ```json
 {
-  "start":       "2026-04-06T21:00:00+00:00",
-  "end":         "2026-04-06T21:04:12+00:00",
-  "invoked":     true,
-  "exit_code":   0,
-  "cost_usd":    0.1234,
-  "tokens_in":   12345,
-  "tokens_out":  678,
-  "limit_hit":   false,
-  "log_excerpt": "last 40 lines of run output"
+  "start":        "2026-04-06T21:00:00+00:00",
+  "end":          "2026-04-06T21:04:12+00:00",
+  "invoked":      true,
+  "exit_code":    0,
+  "cost_usd":     0.1234,
+  "tokens_in":    12345,
+  "tokens_out":   678,
+  "limit_hit":    false,
+  "limit_reset":  "11pm",
+  "log_excerpt":  "last 40 lines of run output"
 }
 ```
 
@@ -70,7 +71,10 @@ JSON line to a machine-readable sidecar file, e.g. `clanker-runs.jsonl`.
 - **exit_code**: exit code of the `claude` process (or -1 if not invoked).
 - **cost_usd / tokens_in / tokens_out**: extracted from `--output-format=stream-json`
   (see §3 below); `null` if not available.
-- **limit_hit**: `true` if "You've hit your limit" was detected in output.
+- **limit_hit**: `true` if a usage limit was detected (via `rate_limit_event`,
+  structured result error, or text fallback).
+- **limit_reset**: human-readable reset time string (e.g. `"11pm"`) when available;
+  `null` otherwise.
 - **log_excerpt**: last ≤40 lines of the combined prep+run output as a single string
   with `\n` line separators.
 
@@ -119,7 +123,7 @@ machine-readable summary block at the end of each prep run, written to
 }
 ```
 
-- **decision**: `"INVOKE_CLAUDE"` or `"SKIP"`.
+- **decision**: `"INVOKE_CLAUDE"` or `"NOTHING_TO_DO"`.
 - **reasons**: human-readable list of why that decision was taken.
 - **fetched_issues** / **fetched_pipelines**: IDs seen this run.
 - **git_actions**: list of actions taken (matches existing `git_status.yaml`).
