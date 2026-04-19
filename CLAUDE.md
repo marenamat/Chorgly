@@ -109,6 +109,19 @@ and it's kept mostly as a reference for the children, not to act on that. While
 children should generally ignore that file, the `claude-base` project must never
 create other desing files.
 
+## Keep design docs in sync with implementation
+
+After reading `claude/design/`, compare what the docs describe against what
+the scripts and website actually do:
+- Field names and values in JSON schemas (e.g. `clanker-runs.jsonl`,
+  `clanker-prep.json`)
+- Setup instructions in `docs/` (timer intervals, commands, required steps)
+- Any new behaviour added to scripts that is not yet documented
+
+Fix discrepancies directly — update the affected design doc section or
+`docs/` page in the same session. Do not raise a question or open an issue
+for this; just keep them in sync.
+
 ## Handle open questions
 
 Read `claude/questions.md`. For each open question:

@@ -489,10 +489,15 @@ def main():
             recent_log, _, _ = run("git log main --oneline -100")
             for issue in issues:
                 num = issue["number"]
-                # Handled if a branch references the issue number
-                branch_handled = any(str(num) in b for b in existing_branches)
-                # Also handled if a recent main commit references the issue number
-                commit_handled = f"#{num}" in recent_log or f"issue-{num}" in recent_log
+                # Handled if an exact issue branch exists (e.g. issue-5 or issue-5-slug)
+                branch_handled = any(
+                    b == f"issue-{num}" or b.startswith(f"issue-{num}-")
+                    for b in existing_branches
+                )
+                # Handled if a recent main commit contains a proper issue ref (#N or "issue #N"),
+                # not a bare "issue-N" substring which can appear as a branch-name prefix in
+                # unrelated commit messages and cause false positives (issue #22).
+                commit_handled = bool(re.search(rf'(?:issue\s+)?#{num}\b', recent_log))
 
                 # Check for new comments regardless of handled state
                 current_cids = {c["id"] for c in issue.get("comments", [])}
